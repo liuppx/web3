@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YeYing Dapp Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: #f6f7fb;
+        color: #1f2937;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+      .container {
+        max-width: 880px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+      p {
+        margin: 0 0 16px;
+        color: #475569;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: 1 1 260px;
+      }
+      label {
+        font-size: 13px;
+        color: #475569;
+      }
+      input, textarea {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        font-family: inherit;
+      }
+      button {
+        border: none;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #0f172a;
+      }
+      button.outline {
+        background: #fff;
+        color: #2563eb;
+        border: 1px solid #2563eb;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 12px;
+        overflow-x: auto;
+        max-height: 280px;
+      }
+      .status {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 8px;
+        font-size: 14px;
+        margin-bottom: 16px;
+      }
+      .status span {
+        color: #64748b;
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        color: #0f172a;
+        font-size: 12px;
+      }
+      .copyable {
+        cursor: pointer;
+      }
+      .note {
+        font-size: 12px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>YeYing Dapp Demo</h1>
+      <p>模拟 Dapp 连接 YeYing 钱包并完成登录。</p>
+
+      <div class="row">
+        <div class="field">
+          <label for="baseUrl">Auth Base URL</label>
+          <input id="baseUrl" value="http://localhost:4001/api/v1/public/auth" />
+        </div>
+        <div class="field">
+          <label for="protectedUrl">Protected API URL</label>
+          <input id="protectedUrl" value="http://localhost:4001/api/v1/private/profile" />
+        </div>
+        <div class="field">
+          <label for="message">Sign Message</label>
+          <input id="message" value="Hello YeYing" />
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="detectBtn">Detect Provider</button>
+        <button id="connectBtn" class="secondary">Connect Wallet</button>
+        <button id="signBtn" class="outline">Sign Message</button>
+        <button id="loginBtn">Login</button>
+      </div>
+      <div class="row">
+        <button id="profileBtn" class="outline">Call Profile</button>
+        <button id="refreshBtn" class="outline">Refresh Token</button>
+        <button id="logoutBtn" class="secondary">Logout</button>
+      </div>
+
+      <div class="status">
+        <span>Provider</span><div id="providerStatus" class="badge">Not detected</div>
+        <span>Address</span><div id="addressStatus">-</div>
+        <span>Chain</span><div id="chainStatus">-</div>
+        <span>Token</span><div id="tokenStatus" class="copyable" title="点击复制">-</div>
+      </div>
+
+      <div class="note" id="note">
+        说明：请先执行 <code>npm run build</code>，确保 <code>dist/yeying-web3.umd.js</code> 存在。
+        建议通过 <code>http://localhost:4001/dapp.html</code> 打开（同源 Cookie 刷新）。
+        点击 Token 即可复制完整值。
+        若提示 No provider found，请确认安装 YeYing 钱包扩展并允许该站点访问。
+      </div>
+
+      <h3>Log</h3>
+      <pre id="log"></pre>
+    </div>
+
+    <script src="http://localhost:4001/dist/yeying-web3.umd.js"></script>
+    <script>
+      const logEl = document.getElementById('log');
+      const providerStatus = document.getElementById('providerStatus');
+      const addressStatus = document.getElementById('addressStatus');
+      const chainStatus = document.getElementById('chainStatus');
+      const tokenStatus = document.getElementById('tokenStatus');
+      const baseUrlInput = document.getElementById('baseUrl');
+      const protectedUrlInput = document.getElementById('protectedUrl');
+      const messageInput = document.getElementById('message');
+
+      const detectBtn = document.getElementById('detectBtn');
+      const connectBtn = document.getElementById('connectBtn');
+      const signBtn = document.getElementById('signBtn');
+      const loginBtn = document.getElementById('loginBtn');
+      const profileBtn = document.getElementById('profileBtn');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const logoutBtn = document.getElementById('logoutBtn');
+
+      let currentToken = null;
+
+      function log(message, data) {
+        const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logEl.textContent += `${line}\n`;
+        if (data !== undefined) {
+          logEl.textContent += `${JSON.stringify(data, null, 2)}\n`;
+        }
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      let provider = null;
+
+      function ensureSDK() {
+        if (!window.YeYingWeb3) {
+          log('SDK not loaded. Run npm run build first.');
+          return false;
+        }
+        return true;
+      }
+
+      function shortenToken(token) {
+        if (!token) return '-';
+        if (token.length <= 16) return token;
+        return `${token.slice(0, 6)}...${token.slice(-6)}`;
+      }
+
+      function updateTokenStatus() {
+        if (!window.YeYingWeb3?.getAccessToken) return;
+        currentToken = window.YeYingWeb3.getAccessToken({ storeToken: false });
+        tokenStatus.textContent = shortenToken(currentToken);
+        tokenStatus.title = currentToken ? '点击复制' : '-';
+      }
+
+      detectBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { getProvider } = window.YeYingWeb3;
+        provider = await getProvider({ timeoutMs: 3000 });
+        if (provider) {
+          providerStatus.textContent = provider.isYeYing ? 'YeYing Provider' : 'Injected Provider';
+          log('Provider detected', { isYeYing: provider.isYeYing, isMetaMask: provider.isMetaMask });
+        } else {
+          providerStatus.textContent = 'Not detected';
+          log('No provider found');
+        }
+      });
+
+      connectBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { requestAccounts, getChainId, onAccountsChanged, onChainChanged } = window.YeYingWeb3;
+        provider = provider || (await window.YeYingWeb3.getProvider({ timeoutMs: 3000 }));
+        if (!provider) return log('No provider');
+
+        const accounts = await requestAccounts({ provider });
+        addressStatus.textContent = accounts[0] || '-';
+        const chainId = await getChainId(provider);
+        chainStatus.textContent = chainId || '-';
+        log('Connected', { accounts, chainId });
+
+        onAccountsChanged(provider, (next) => {
+          addressStatus.textContent = next[0] || '-';
+          log('accountsChanged', next);
+        });
+
+        onChainChanged(provider, (next) => {
+          chainStatus.textContent = next;
+          log('chainChanged', next);
+        });
+      });
+
+      signBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { signMessage } = window.YeYingWeb3;
+        provider = provider || (await window.YeYingWeb3.getProvider({ timeoutMs: 3000 }));
+        if (!provider) return log('No provider');
+
+        const signature = await signMessage({
+          provider,
+          message: messageInput.value,
+        });
+
+        log('Signature', signature);
+      });
+
+      loginBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { loginWithChallenge } = window.YeYingWeb3;
+        provider = provider || (await window.YeYingWeb3.getProvider({ timeoutMs: 3000 }));
+        if (!provider) return log('No provider');
+
+        const login = await loginWithChallenge({
+          provider,
+          baseUrl: baseUrlInput.value,
+          storeToken: false,
+        });
+
+        updateTokenStatus();
+        log('Login success', login);
+      });
+
+      profileBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { authFetch } = window.YeYingWeb3;
+
+        const res = await authFetch(protectedUrlInput.value, { method: 'GET' }, {
+          baseUrl: baseUrlInput.value,
+          storeToken: false,
+        });
+
+        let payload = null;
+        try {
+          payload = await res.json();
+        } catch {
+          payload = { status: res.status };
+        }
+
+        log('Profile response', payload);
+        updateTokenStatus();
+      });
+
+      refreshBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { refreshAccessToken } = window.YeYingWeb3;
+
+        const result = await refreshAccessToken({
+          baseUrl: baseUrlInput.value,
+          storeToken: false,
+        });
+
+        updateTokenStatus();
+        log('Refresh success', result);
+      });
+
+      logoutBtn.addEventListener('click', async () => {
+        if (!ensureSDK()) return;
+        const { logout } = window.YeYingWeb3;
+
+        const result = await logout({
+          baseUrl: baseUrlInput.value,
+          storeToken: false,
+        });
+
+        updateTokenStatus();
+        log('Logout', result);
+      });
+
+      async function copyToken() {
+        if (!currentToken) return;
+        try {
+          await navigator.clipboard.writeText(currentToken);
+          log('Token copied');
+        } catch (error) {
+          try {
+            const input = document.createElement('textarea');
+            input.value = currentToken;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            input.remove();
+            log('Token copied');
+          } catch (fallbackError) {
+            log('Copy failed', fallbackError);
+          }
+        }
+      }
+
+      tokenStatus.addEventListener('click', copyToken);
+
+      if (location.protocol === 'file:') {
+        const note = document.getElementById('note');
+        note.textContent =
+          '当前为 file:// 打开。扩展通常不会注入 provider。请使用本地服务器打开该页面，或在扩展设置中允许访问文件 URL。';
+      }
+    </script>
+  </body>
+</html>
